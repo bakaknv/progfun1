@@ -34,10 +34,22 @@ object Anagrams {
    *
    *  Note: you must use `groupBy` to implement this method!
    */
-  def wordOccurrences(w: Word): Occurrences = ???
+  def wordOccurrences(w: Word): Occurrences = ((((w toLowerCase) groupBy(identity(_))) toList) map {
+    case (c, str) => (c, str.length)
+  }).sortWith {
+    case ((cl, _), (cr, _)) => cl < cr
+  }
 
   /** Converts a sentence into its character occurrence list. */
-  def sentenceOccurrences(s: Sentence): Occurrences = ???
+  def sentenceOccurrences(s: Sentence): Occurrences = s.flatMap(wordOccurrences(_)).groupBy {
+    case (c, count) => c
+  }.map {
+    case (c, list) => (c, list.foldLeft(0) {
+      case (acc, (ch, count)) => acc + count
+    })
+  }.toList.sortWith {
+    case ((cl, _), (cr, _)) => cl < cr
+  }
 
   /** The `dictionaryByOccurrences` is a `Map` from different occurrences to a sequence of all
    *  the words that have that occurrence count.
@@ -54,10 +66,18 @@ object Anagrams {
    *    List(('a', 1), ('e', 1), ('t', 1)) -> Seq("ate", "eat", "tea")
    *
    */
-  lazy val dictionaryByOccurrences: Map[Occurrences, List[Word]] = ???
+  lazy val dictionaryByOccurrences: Map[Occurrences, List[Word]] = {
+     loadDictionary.foldRight (Map.empty[Occurrences, List[Word]]) {
+       case (word, acc) =>
+         val occurrences = wordOccurrences(word)
+         acc + (occurrences -> (word :: acc.getOrElse(occurrences, List.empty[Word])))
+     }
+  }
 
   /** Returns all the anagrams of a given word. */
-  def wordAnagrams(word: Word): List[Word] = ???
+  def wordAnagrams(word: Word): List[Word] = {
+    dictionaryByOccurrences(wordOccurrences(word))
+  }
 
   /** Returns the list of all subsets of the occurrence list.
    *  This includes the occurrence itself, i.e. `List(('k', 1), ('o', 1))`
@@ -81,7 +101,17 @@ object Anagrams {
    *  Note that the order of the occurrence list subsets does not matter -- the subsets
    *  in the example above could have been displayed in some other order.
    */
-  def combinations(occurrences: Occurrences): List[Occurrences] = ???
+  def combinations(occurrences: Occurrences): List[Occurrences] = {
+    occurrences.foldRight(List(List.empty[(Char, Int)])) {
+      case ((ch, count), acc) =>
+        val allOccurComb = (0 to count).map(c => (ch, c))
+        val newAcc = for {
+          occ <- allOccurComb
+          list <- acc
+        } yield occ :: list
+        newAcc.toList
+    }.map(list => list.filter(_._2 != 0))
+  }
 
   /** Subtracts occurrence list `y` from occurrence list `x`.
    *
@@ -93,7 +123,22 @@ object Anagrams {
    *  Note: the resulting value is an occurrence - meaning it is sorted
    *  and has no zero-entries.
    */
-  def subtract(x: Occurrences, y: Occurrences): Occurrences = ???
+  def subtract(xs: Occurrences, ys: Occurrences): Occurrences = {
+    val res = ys.foldLeft(xs.toMap.withDefaultValue(0)) {
+      case (map, (ch, count)) =>
+        if (map(ch) - count == 0)
+          map - ch
+        else
+          map + (ch -> (map(ch) - count))
+    }
+    res.toList
+  }
+
+  def isOk(xs: Occurrences): Boolean = {
+    xs.forall {
+      case (_, int) => int > 0
+    }
+  }
 
   /** Returns a list of all anagram sentences of the given sentence.
    *
@@ -135,5 +180,34 @@ object Anagrams {
    *
    *  Note: There is only one anagram of an empty sentence.
    */
-  def sentenceAnagrams(sentence: Sentence): List[Sentence] = ???
+  def sentenceAnagrams(sentence: Sentence): List[Sentence] = {
+    if (sentence.isEmpty) {
+      return List(Nil)
+    }
+
+    val occur = sentenceOccurrences(sentence)
+    val c = for (c <- combinations(occur) if dictionaryByOccurrences.contains(c)) yield c
+
+    def internal(occurrences: Occurrences, combinations: Set[Occurrences], acc: Sentence): Set[Sentence] = {
+      combinations.foldLeft(Set.empty[Sentence]) {
+        case (a, com) =>
+          val sub = subtract(occurrences, com)
+          if (sub.isEmpty)
+            a ++ addAllToAcc(com, acc)
+          else if (isOk(occurrences))
+            addAllToAcc(com, acc).foldLeft(a) {
+              case (aa, sen) => aa ++ internal(sub, combinations - com, sen)
+            }
+          else
+            a
+      }
+    }
+    internal(occur, c.toSet, List.empty[Word]).toList
+  }
+
+  def addAllToAcc(com: Occurrences, acc: Sentence): Set[Sentence] = {
+    dictionaryByOccurrences.getOrElse(com, Nil).foldLeft(Set.empty[Sentence]) {
+      case (set, word) => set + (word :: acc)
+    }
+  }
 }
